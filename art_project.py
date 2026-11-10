@@ -1,8 +1,11 @@
 import streamlit as st
 import pandas as pd
+from PIL import Image
+import urllib.request
+import io
 
 # -----------------------------------------------------------------------------
-# 1. 페이지 기본 설정 및 국내 명화 데이터베이스 (실제 명화 이미지 URL 적용)
+# 1. 페이지 기본 설정 및 명화 데이터베이스
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="국내 미술관 맞춤 도슨트",
@@ -10,7 +13,21 @@ st.set_page_config(
     layout="wide"
 )
 
-# 실제 한국 명화 이미지 URL로 정확히 매칭된 DB
+# 외부 차단 방지를 위한 이미지 로더 함수 (URL ➔ PIL Image)
+@st.cache_data
+def load_image_from_url(url):
+    try:
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        )
+        with urllib.request.urlopen(req) as response:
+            image_data = response.read()
+        return Image.open(io.BytesIO(image_data))
+    except Exception:
+        return None
+
+# 실제 명화 데이터베이스
 ARTWORKS_DB = [
     {
         "id": 1,
@@ -82,9 +99,8 @@ ARTWORKS_DB = [
         "time_fast": 7,
         "museum": "국립중앙박물관 (서울)",
         "location": "서화관 2층 회화실",
-        # ⭐️ 변상벽 화백의 실제 묘작도(고양이와 참새) 원화 이미지로 수정되었습니다.
         "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Byeon_Sang-byeok_-_Myojakdo.jpg/800px-Byeon_Sang-byeok_-_Myojakdo.jpg",
-        "description": "조선 후기 화재(和齋) 변상벽이 나무 위 참새를 바라보는 고양이의 순간을 섬세하게 담아낸 국보급 영모화입니다.",
+        "description": "조선 후기 화재 변상벽이 나무 위 참새를 바라보는 고양이의 순간을 섬세하게 담아낸 국보급 영모화입니다.",
         "point_normal": "고양이 털의 한 가닥까지 세밀하게 묘사한 정교한 필치와 고목나무 위 참새들의 생동감을 살펴보세요.",
         "point_fast": "고양이의 사실적인 털 묘사와 나무 위 참새의 구도에 주목하세요."
     },
@@ -99,8 +115,8 @@ ARTWORKS_DB = [
         "museum": "국립중앙박물관 (서울)",
         "location": "서화관 2층 기증관",
         "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Sehando_by_Kim_Jeong-hui.jpg/800px-Sehando_by_Kim_Jeong-hui.jpg",
-        "description": "추운 겨울에도 시들지 않는 소나무와 잣나무를 통해 변치 않는 선비의 지조와 의리를 담은 문인화입니다.",
-        "point_normal": "거칠고 메마른 갈필 붓질 속에서 전해지는 절제된 선비 정신을 천천히 감사해 보세요.",
+        "description": "추운 겨울에도 시들지 않는 소나무와 잣나무를 통해 변치 않는 지조를 담은 한국 대표 문인화입니다.",
+        "point_normal": "거칠고 메마른 갈필 붓질 속에서 전해지는 절제된 선비 정신을 천천히 감상해 보세요.",
         "point_fast": "메마른 붓으로 표현된 소나무와 집의 절제된 구도를 관찰하세요."
     }
 ]
@@ -120,11 +136,10 @@ DEFAULT_ARTWORK = {
 }
 
 # -----------------------------------------------------------------------------
-# 2. 사이드바 - 감상 모드 분리 및 검색 옵션
+# 2. 사이드바 - 관람 옵션 설정
 # -----------------------------------------------------------------------------
 st.sidebar.title("🎨 미술관 도슨트 설정")
 
-# 관람 모드 분리 버튼 (라디오 옵션)
 view_mode = st.sidebar.radio(
     "🏃‍♂️ 관람 스타일에 맞춰 모드를 선택하세요",
     ["🍃 여유 감상 모드 (작품당 15~25분)", "⚡ 쾌속 감상 모드 (작품당 7~10분)"]
@@ -147,7 +162,7 @@ selected_mood = st.sidebar.radio("✨ 원하는 분위기", moods)
 max_time = st.sidebar.slider("⏱️ 총 관람 가능 시간 (분)", min_value=15, max_value=120, value=60, step=5)
 
 # -----------------------------------------------------------------------------
-# 3. 알고리즘 계산
+# 3. 추천 동선 알고리즘
 # -----------------------------------------------------------------------------
 filtered_artworks = []
 accumulated_time = 0
@@ -189,7 +204,12 @@ if not filtered_artworks:
     
     col_img, col_info = st.columns([1, 2])
     with col_img:
-        st.image(DEFAULT_ARTWORK["image_url"], caption=DEFAULT_ARTWORK["title"], use_container_width=True)
+        img = load_image_from_url(DEFAULT_ARTWORK["image_url"])
+        if img:
+            st.image(img, caption=DEFAULT_ARTWORK["title"], use_container_width=True)
+        else:
+            st.caption("🖼️ [이미지 로딩 불가] 외부 네트워크 보안으로 이미지를 볼 수 없습니다.")
+            
     with col_info:
         st.subheader(f"{DEFAULT_ARTWORK['title']} ({DEFAULT_ARTWORK['artist']})")
         st.markdown(f"📍 **소장 미술관:** `{DEFAULT_ARTWORK['museum']}` — *{DEFAULT_ARTWORK['location']}*")
@@ -213,10 +233,12 @@ else:
                     with st.container(border=True):
                         st.markdown(f"### 🚩 **STEP {idx + 1}. {art['title']}** (`{art['current_duration']}분 코스`)")
                         
-                        try:
-                            st.image(art["image_url"], use_container_width=True)
-                        except Exception:
-                            st.warning("🖼️ 위키미디어 원화 이미지를 불러오는 중 오류가 발생했습니다.")
+                        # 우회 함수를 사용해 안전하게 이미지 로딩
+                        img = load_image_from_url(art["image_url"])
+                        if img:
+                            st.image(img, use_container_width=True)
+                        else:
+                            st.info(f"🖼️ **[작품 원화 전경: {art['title']}]**\n\n*(네트워크 차단으로 이미지를 열 수 없는 경우 로컬 이미지 파일 경로를 사용하세요)*")
                         
                         st.markdown(f"📍 **소장:** {art['museum']}")
                         st.caption(f"🏛️ **전시실 위치:** {art['location']}")
